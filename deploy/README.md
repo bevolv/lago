@@ -52,7 +52,7 @@ docker compose up --profile all
 docker compose up -d --profile all
 ```
 
-## Docker Compose Production
+## Docker Compose Production (Recommended for EC2)
 
 This configuration provide Traefik as a reverse proxy to ease your deployment.
 It supports SSL wth Let's Encrypt. :warning: You need a valid domain (with at least one A or AAA record)!
@@ -69,8 +69,12 @@ curl -o .env https://raw.githubusercontent.com/getlago/lago/main/deploy/.env.pro
 ```bash
 LAGO_DOMAIN=domain.tld
 LAGO_ACME_EMAIL=email@domain.tld
-PORTAINER_USER=lago
-PORTAINER_PASSWORD=changeme
+SECRET_KEY_BASE=<strong-random-secret>
+LAGO_ENCRYPTION_PRIMARY_KEY=<strong-random-secret>
+LAGO_ENCRYPTION_DETERMINISTIC_KEY=<strong-random-secret>
+LAGO_ENCRYPTION_KEY_DERIVATION_SALT=<strong-random-secret>
+POSTGRES_PASSWORD=<strong-random-secret>
+REDIS_PASSWORD=<strong-random-secret>
 ```
 
 3. Run the following command to start the project
@@ -80,7 +84,26 @@ docker compose up --profile all
 
 # If you want to run it in the background
 docker compose up -d --profile all
+
+# If you use external PostgreSQL + external Redis
+docker compose up -d --profile all-no-db
 ```
+
+4. Optional: start Portainer only when needed
+
+```bash
+docker compose up -d --profile all --profile portainer
+```
+
+### Production notes for self-hosted EC2
+
+- Use `deploy/docker-compose.production.yml` for production. Do not use the root `docker-compose.yml` for internet-facing production.
+- `deploy/deploy.sh` is a convenience bootstrap script. For reproducible production deployments, run Docker Compose directly with pinned files and explicit profiles.
+- Ensure your DNS `A/AAAA` record points to your EC2 public IP before starting the stack.
+- Keep `.env` out of Git and store secrets in AWS SSM Parameter Store / Secrets Manager.
+- Restrict EC2 security groups to required ports only (`443`; optionally `80` for redirects/challenges).
+- Use external managed PostgreSQL/Redis (RDS/ElastiCache) for higher reliability.
+- Configure backups, monitoring, and log aggregation for production operations.
 
 
 ## Configuration
