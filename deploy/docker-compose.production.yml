@@ -93,7 +93,8 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./letsencrypt:/letsencrypt"
-      
+      - "./htpasswd:/etc/traefik/htpasswd:ro"
+
   db:
     <<: *postgres-image
     container_name: lago-db
@@ -476,3 +477,19 @@ services:
       - "traefik.http.services.portainer-service.loadbalancer.server.port=9000"
       - "traefik.http.routers.portainer.middlewares=portainer-stripprefix"
       - "traefik.http.middlewares.portainer-stripprefix.stripprefix.prefixes=/portainer"
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: lago-dozzle
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dozzle.entrypoints=websecure"
+      - "traefik.http.routers.dozzle.rule=Host(`${DOZZLE_HOSTNAME:-dozzle.lago}.bevolv.co`)"
+      - "traefik.http.routers.dozzle.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dozzle.service=dozzle-service"
+      - "traefik.http.services.dozzle-service.loadbalancer.server.port=8080"
+      - "traefik.http.routers.dozzle.middlewares=dozzle-auth"
+      - "traefik.http.middlewares.dozzle-auth.basicauth.usersfile=/etc/traefik/htpasswd/dozzle"
