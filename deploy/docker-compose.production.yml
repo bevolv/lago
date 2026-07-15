@@ -8,7 +8,7 @@ volumes:
   portainer_data:
 
 x-postgres-image: &postgres-image
-  image: postgres:15-alpine
+  image: getlago/postgres-partman:15.0-alpine
 x-redis-image: &redis-image
   image: redis:7-alpine
 x-backend-image: &backend-image
@@ -99,6 +99,7 @@ services:
     <<: *postgres-image
     container_name: lago-db
     restart: unless-stopped
+    command: -c config_file=/etc/postgresql.conf
     healthcheck:
       test:
         [
@@ -117,6 +118,7 @@ services:
       POSTGRES_SCHEMA: public
     volumes:
       - lago_postgres_data:/data/postgres
+      - ./postgresql.conf:/etc/postgresql.conf
     ports:
       - ${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}
     profiles:
@@ -128,12 +130,19 @@ services:
     <<: *redis-image
     container_name: lago-redis
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    command: --port ${REDIS_PORT:-6379}
+    command:
+      - sh
+      - -c
+      - >
+          redis-server --port ${REDIS_PORT:-6379}
+          $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}
     volumes:
       - lago_redis_data:/data
     ports:

@@ -22,6 +22,7 @@ jobs:
         with:
           sparse-checkout: |
             deploy/docker-compose.production.yml
+            deploy/postgresql.conf
 
       - name: Add SSH key
         uses: webfactory/ssh-agent@v0.9.0
@@ -60,6 +61,8 @@ jobs:
         run: |
           scp deploy/docker-compose.production.yml \
             "$EC2_SSH_USER@$EC2_SSH_HOST:$DEPLOY_PATH/docker-compose.production.yml"
+          scp deploy/postgresql.conf \
+            "$EC2_SSH_USER@$EC2_SSH_HOST:$DEPLOY_PATH/postgresql.conf"
 
       - name: Write remote .env
         env:
