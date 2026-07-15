@@ -62,7 +62,14 @@ Portainer is also packed to help you scale services and manage your Lago stack.
 ```bash
 curl -o docker-compose.yml https://raw.githubusercontent.com/getlago/lago/main/deploy/docker-compose.production.yml
 curl -o .env https://raw.githubusercontent.com/getlago/lago/main/deploy/.env.production.example
+curl -o postgresql.conf https://raw.githubusercontent.com/getlago/lago/main/deploy/postgresql.conf
 ```
+
+The `db` service runs on `getlago/postgres-partman`, which ships the `pg_partman`
+extension Lago's schema requires (partitioning for the `enriched_events` table) —
+plain `postgres:15-alpine` is missing it and `db:migrate` fails with `extension
+"pg_partman" is not available`. `postgresql.conf` configures `pg_partman_bgw` for
+scheduled partition maintenance and must sit next to `docker-compose.yml`.
 
 2. Replace the .env values with yours
 
@@ -123,12 +130,12 @@ following secrets and variables.
 | `EC2_SSH_PRIVATE_KEY` | Yes | SSH private key for the instance |
 | `EC2_SSH_HOST` | Yes | Instance IP/hostname |
 | `EC2_SSH_USER` | Yes | SSH login user |
-| `POSTGRES_PASSWORD` | Yes | Bundled Postgres password |
+| `POSTGRES_PASSWORD` | Yes | Bundled Postgres password (`openssl rand -hex 32`) |
 | `SECRET_KEY_BASE` | Yes | Rails secret key base (`openssl rand -hex 64`) |
 | `LAGO_ENCRYPTION_PRIMARY_KEY` | Yes | Encryption key (`openssl rand -hex 32`) |
 | `LAGO_ENCRYPTION_DETERMINISTIC_KEY` | Yes | Encryption key |
 | `LAGO_ENCRYPTION_KEY_DERIVATION_SALT` | Yes | Encryption key |
-| `REDIS_PASSWORD` | Optional | Wired through; currently has no effect on the bundled Redis container, which isn't started with `--requirepass` |
+| `REDIS_PASSWORD` | Optional | When set, enables `--requirepass` on the bundled Redis container and its healthcheck (`openssl rand -hex 32`) |
 | `LAGO_RSA_PRIVATE_KEY` | Optional | Only needed to override the auto-generated key |
 | `LAGO_AWS_S3_ACCESS_KEY_ID` | Optional | S3 storage |
 | `LAGO_AWS_S3_SECRET_ACCESS_KEY` | Optional | S3 storage |
@@ -151,18 +158,28 @@ following secrets and variables.
 | `LAGO_AWS_S3_REGION` / `LAGO_AWS_S3_BUCKET` / `LAGO_AWS_S3_ENDPOINT` | Optional | empty | S3 config |
 | `LAGO_FROM_EMAIL` / `LAGO_SMTP_ADDRESS` / `LAGO_SMTP_PORT` | Optional | empty / `587` | SMTP config |
 | `PORTAINER_USER` | Optional | empty | Only relevant if Portainer enabled |
-| `DOZZLE_USER` | Optional | `admin` | Dozzle basic-auth username |
+| `DOZZLE_USER` | Optional | `admin` | Dozzle basic-auth username — also gates the Traefik dashboard, which reuses the same htpasswd file |
 | `DOZZLE_HOSTNAME` | Optional | `dozzle.lago` | Prefix only, always suffixed with the hardcoded `.bevolv.co` in the compose file |
+| `TRAEFIK_HOSTNAME` | Optional | `traefik.lago` | Prefix only, suffixed with `.bevolv.co`. Serves the Traefik dashboard/API, protected by the same basic auth as Dozzle |
 
 Not wired: GCS storage, Google SSO. `POSTGRES_USER/DB/HOST/PORT` and
 `REDIS_HOST/PORT` stay at compose defaults since the workflow always bundles
 Postgres/Redis on the instance (`--profile all`).
 
+`POSTGRES_PASSWORD` and `REDIS_PASSWORD` only take effect on first container init —
+Postgres and Redis both persist to a named Docker volume (`lago_postgres_data`,
+`lago_redis_data`), so once that volume exists, changing the GitHub secret alone
+does not rotate the running credential. To rotate either one later, update the
+secret and also change the password inside the running container (e.g. `ALTER USER
+lago WITH PASSWORD '...'` for Postgres, `redis-cli CONFIG SET requirepass ...` for
+Redis) so the two stay in sync — otherwise the app's connection string and the
+actual stored credential diverge and the app fails to connect.
+
 **Prerequisites, before the first push to `deploy/ec2`:**
 - DNS: `LAGO_DOMAIN` (or the `lago.bevolv.co` default) A-records to the instance's
-  public IP. `<DOZZLE_HOSTNAME>.bevolv.co` (default `dozzle.lago.bevolv.co`)
-  A-records to the same IP — Traefik/Let's Encrypt need to resolve and challenge
-  both hosts.
+  public IP. `<DOZZLE_HOSTNAME>.bevolv.co` (default `dozzle.lago.bevolv.co`) and
+  `<TRAEFIK_HOSTNAME>.bevolv.co` (default `traefik.lago.bevolv.co`) A-record to the
+  same IP — Traefik/Let's Encrypt need to resolve and challenge all three hosts.
 - Security Group: `22` (restricted to an admin CIDR), `80`, `443` open. `5432` and
   `6379` not open to `0.0.0.0/0`.
 - Instance: Docker Engine + Compose v2 plugin installed, SSH user has passwordless
@@ -172,11 +189,12 @@ Postgres/Redis on the instance (`--profile all`).
 
 After the first run: confirm secret values render as `***` in the Actions log,
 confirm the health-check and smoke-test steps pass, browse to the domain and confirm
-a trusted Let's Encrypt certificate (not a staging/self-signed warning), confirm the
-Traefik dashboard is unreachable, confirm Portainer isn't running unless
-intentionally enabled, and confirm the Dozzle hostname prompts for basic-auth
-credentials. A common `EC2_SSH_USER` value (e.g. `ubuntu`) gets masked wherever it
-appears in the Actions log, including unrelated text — expected, harmless.
+a trusted Let's Encrypt certificate (not a staging/self-signed warning), confirm
+Portainer isn't running unless intentionally enabled, and confirm both the Dozzle
+and Traefik dashboard hostnames prompt for basic-auth credentials (same
+`DOZZLE_USER`/`DOZZLE_PASSWORD` for both) rather than serving content straight away.
+A common `EC2_SSH_USER` value (e.g. `ubuntu`) gets masked wherever it appears in the
+Actions log, including unrelated text — expected, harmless.
 
 There is no automatic rollback: the deploy runs `docker compose pull && up -d
 --wait` against a stateful instance with an in-place database, and the `migrate`
