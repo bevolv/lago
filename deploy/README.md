@@ -52,7 +52,7 @@ docker compose up --profile all
 docker compose up -d --profile all
 ```
 
-## Docker Compose Production
+## Docker Compose Production (Recommended for EC2)
 
 This configuration provide Traefik as a reverse proxy to ease your deployment.
 It supports SSL wth Let's Encrypt. :warning: You need a valid domain (with at least one A or AAA record)!
@@ -69,8 +69,12 @@ curl -o .env https://raw.githubusercontent.com/getlago/lago/main/deploy/.env.pro
 ```bash
 LAGO_DOMAIN=domain.tld
 LAGO_ACME_EMAIL=email@domain.tld
-PORTAINER_USER=lago
-PORTAINER_PASSWORD=changeme
+SECRET_KEY_BASE=<strong-random-secret>
+LAGO_ENCRYPTION_PRIMARY_KEY=<strong-random-secret>
+LAGO_ENCRYPTION_DETERMINISTIC_KEY=<strong-random-secret>
+LAGO_ENCRYPTION_KEY_DERIVATION_SALT=<strong-random-secret>
+POSTGRES_PASSWORD=<strong-random-secret>
+REDIS_PASSWORD=<strong-random-secret>
 ```
 
 3. Run the following command to start the project
@@ -80,7 +84,104 @@ docker compose up --profile all
 
 # If you want to run it in the background
 docker compose up -d --profile all
+
+# If you use external PostgreSQL + external Redis
+docker compose up -d --profile all-no-db
 ```
+
+4. Optional: start Portainer only when needed
+
+```bash
+docker compose up -d --profile all --profile portainer
+```
+
+### Production notes for self-hosted EC2
+
+- Use `deploy/docker-compose.production.yml` for production. Do not use the root `docker-compose.yml` for internet-facing production.
+- `deploy/deploy.sh` is a convenience bootstrap script. For reproducible production deployments, run Docker Compose directly with pinned files and explicit profiles.
+- Ensure your DNS `A/AAAA` record points to your EC2 public IP before starting the stack.
+- Keep `.env` out of Git and store secrets in AWS SSM Parameter Store / Secrets Manager.
+- Restrict EC2 security groups to required ports only (`443`; optionally `80` for redirects/challenges).
+- Use external managed PostgreSQL/Redis (RDS/ElastiCache) for higher reliability.
+- Configure backups, monitoring, and log aggregation for production operations.
+
+### Automated Deployment via GitHub Actions
+
+Pushing to the `deploy/ec2` branch triggers `.github/workflows/deploy-ec2.yml`, which
+SSHes into a single EC2 instance, uploads `docker-compose.production.yml`, generates
+`.env` from GitHub Actions secrets/variables, and runs `docker compose pull && up -d`.
+It also deploys a Dozzle log viewer (`amir20/dozzle`) behind Traefik, protected by
+basic auth.
+
+Configure a `production` GitHub Environment (Settings → Environments) with the
+following secrets and variables.
+
+**Secrets**
+
+| Secret | Required | Purpose |
+|---|---|---|
+| `EC2_SSH_PRIVATE_KEY` | Yes | SSH private key for the instance |
+| `EC2_SSH_HOST` | Yes | Instance IP/hostname |
+| `EC2_SSH_USER` | Yes | SSH login user |
+| `POSTGRES_PASSWORD` | Yes | Bundled Postgres password |
+| `SECRET_KEY_BASE` | Yes | Rails secret key base (`openssl rand -hex 64`) |
+| `LAGO_ENCRYPTION_PRIMARY_KEY` | Yes | Encryption key (`openssl rand -hex 32`) |
+| `LAGO_ENCRYPTION_DETERMINISTIC_KEY` | Yes | Encryption key |
+| `LAGO_ENCRYPTION_KEY_DERIVATION_SALT` | Yes | Encryption key |
+| `REDIS_PASSWORD` | Optional | Wired through; currently has no effect on the bundled Redis container, which isn't started with `--requirepass` |
+| `LAGO_RSA_PRIVATE_KEY` | Optional | Only needed to override the auto-generated key |
+| `LAGO_AWS_S3_ACCESS_KEY_ID` | Optional | S3 storage |
+| `LAGO_AWS_S3_SECRET_ACCESS_KEY` | Optional | S3 storage |
+| `LAGO_SMTP_USERNAME` | Optional | SMTP email |
+| `LAGO_SMTP_PASSWORD` | Optional | SMTP email |
+| `PORTAINER_PASSWORD` | Optional | Only used if `EC2_ENABLE_PORTAINER=true` |
+| `DOZZLE_PASSWORD` | Optional | Falls back to `changeme` — set before exposing Dozzle publicly |
+
+**Variables**
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `LAGO_DOMAIN` | Optional | `lago.bevolv.co` | Public domain, A-recorded to the instance |
+| `LAGO_ACME_EMAIL` | Yes | — | Let's Encrypt registration email |
+| `EC2_DEPLOY_PATH` | Optional | `/opt/lago` | Remote deploy directory |
+| `EC2_DEPLOY_PROFILE` | Optional | `all` | Compose `--profile` |
+| `EC2_ENABLE_PORTAINER` | Optional | `false` | Adds `--profile portainer` |
+| `EC2_KNOWN_HOSTS` | Optional | falls back to runtime `ssh-keyscan` | Pinned host key, closes the TOFU gap on first connect |
+| `LAGO_USE_AWS_S3` | Optional | `false` | S3 toggle |
+| `LAGO_AWS_S3_REGION` / `LAGO_AWS_S3_BUCKET` / `LAGO_AWS_S3_ENDPOINT` | Optional | empty | S3 config |
+| `LAGO_FROM_EMAIL` / `LAGO_SMTP_ADDRESS` / `LAGO_SMTP_PORT` | Optional | empty / `587` | SMTP config |
+| `PORTAINER_USER` | Optional | empty | Only relevant if Portainer enabled |
+| `DOZZLE_USER` | Optional | `admin` | Dozzle basic-auth username |
+| `DOZZLE_HOSTNAME` | Optional | `dozzle.lago` | Prefix only, always suffixed with the hardcoded `.bevolv.co` in the compose file |
+
+Not wired: GCS storage, Google SSO. `POSTGRES_USER/DB/HOST/PORT` and
+`REDIS_HOST/PORT` stay at compose defaults since the workflow always bundles
+Postgres/Redis on the instance (`--profile all`).
+
+**Prerequisites, before the first push to `deploy/ec2`:**
+- DNS: `LAGO_DOMAIN` (or the `lago.bevolv.co` default) A-records to the instance's
+  public IP. `<DOZZLE_HOSTNAME>.bevolv.co` (default `dozzle.lago.bevolv.co`)
+  A-records to the same IP — Traefik/Let's Encrypt need to resolve and challenge
+  both hosts.
+- Security Group: `22` (restricted to an admin CIDR), `80`, `443` open. `5432` and
+  `6379` not open to `0.0.0.0/0`.
+- Instance: Docker Engine + Compose v2 plugin installed, SSH user has passwordless
+  sudo (default on standard EC2 AMIs) and is in the `docker` group.
+- GitHub: `production` Environment created, all secrets/variables above populated —
+  in particular `DOZZLE_PASSWORD`, which otherwise defaults to `changeme`.
+
+After the first run: confirm secret values render as `***` in the Actions log,
+confirm the health-check and smoke-test steps pass, browse to the domain and confirm
+a trusted Let's Encrypt certificate (not a staging/self-signed warning), confirm the
+Traefik dashboard is unreachable, confirm Portainer isn't running unless
+intentionally enabled, and confirm the Dozzle hostname prompts for basic-auth
+credentials. A common `EC2_SSH_USER` value (e.g. `ubuntu`) gets masked wherever it
+appears in the Actions log, including unrelated text — expected, harmless.
+
+There is no automatic rollback: the deploy runs `docker compose pull && up -d
+--wait` against a stateful instance with an in-place database, and the `migrate`
+service always runs first. A failure fails the job loudly; recover by SSHing in,
+checking `docker compose logs`, and fixing forward.
 
 
 ## Configuration

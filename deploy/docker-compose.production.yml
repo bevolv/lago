@@ -12,9 +12,9 @@ x-postgres-image: &postgres-image
 x-redis-image: &redis-image
   image: redis:7-alpine
 x-backend-image: &backend-image
-  image: getlago/api:v1.27.1
+  image: getlago/api:v1.50.0
 x-frontend-image: &frontend-image
-  image: getlago/front:v1.27.1
+  image: getlago/front:v1.50.0
 
 x-lago-domain: &lago-domain
   LAGO_DOMAIN: ${LAGO_DOMAIN}
@@ -77,21 +77,33 @@ services:
     container_name: lago-traefik
     restart: unless-stopped
     command:
-      - "--api.insecure=true"
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.email=${LAGO_ACME_EMAIL:-your_email@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LAGO_ACME_EMAIL:-ishrath.inaam@bevolv.co}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"
     ports:
-      - 8080:8080
+      - 80:80
       - 443:443
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./letsencrypt:/letsencrypt"
-      
+      - "./htpasswd:/etc/traefik/htpasswd:ro"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.rule=Host(`${TRAEFIK_HOSTNAME:-traefik.lago}.bevolv.co`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.middlewares=dashboard-auth"
+      - "traefik.http.middlewares.dashboard-auth.basicauth.usersfile=/etc/traefik/htpasswd/dozzle"
+
   db:
     <<: *postgres-image
     container_name: lago-db
@@ -457,6 +469,8 @@ services:
     image: portainer/portainer-ce:latest
     container_name: lago-portainer
     restart: unless-stopped
+    profiles:
+      - portainer
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - portainer_data:/data
@@ -472,3 +486,19 @@ services:
       - "traefik.http.services.portainer-service.loadbalancer.server.port=9000"
       - "traefik.http.routers.portainer.middlewares=portainer-stripprefix"
       - "traefik.http.middlewares.portainer-stripprefix.stripprefix.prefixes=/portainer"
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: lago-dozzle
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dozzle.entrypoints=websecure"
+      - "traefik.http.routers.dozzle.rule=Host(`${DOZZLE_HOSTNAME:-dozzle.lago}.bevolv.co`)"
+      - "traefik.http.routers.dozzle.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dozzle.service=dozzle-service"
+      - "traefik.http.services.dozzle-service.loadbalancer.server.port=8080"
+      - "traefik.http.routers.dozzle.middlewares=dozzle-auth"
+      - "traefik.http.middlewares.dozzle-auth.basicauth.usersfile=/etc/traefik/htpasswd/dozzle"
