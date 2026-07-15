@@ -13,7 +13,14 @@ This configuration can be used for small production usages but it's not recommen
 
 ```bash
 curl -o docker-compose.yml https://raw.githubusercontent.com/getlago/lago/main/deploy/docker-compose.local.yml
+curl -o postgresql.conf https://raw.githubusercontent.com/getlago/lago/main/deploy/postgresql.conf
 ```
+
+The `db` service runs on `getlago/postgres-partman`, which ships the `pg_partman`
+extension Lago's schema requires (partitioning for the `enriched_events` table) —
+plain `postgres:15-alpine` is missing it and `db:migrate` fails with `extension
+"pg_partman" is not available`. `postgresql.conf` configures `pg_partman_bgw` for
+scheduled partition maintenance and must sit next to `docker-compose.yml`.
 
 2. Run the following command to start the project:
 
@@ -34,7 +41,14 @@ It supports SSL with Let's Encrypt. :warning: You need a valid domain (with at l
 ```bash
 curl -o docker-compose.yml https://raw.githubusercontent.com/getlago/lago/main/deploy/docker-compose.light.yml
 curl -o .env https://raw.githubusercontent.com/getlago/lago/main/deploy/.env.light.example
+curl -o postgresql.conf https://raw.githubusercontent.com/getlago/lago/main/deploy/postgresql.conf
 ```
+
+The `db` service runs on `getlago/postgres-partman`, which ships the `pg_partman`
+extension Lago's schema requires (partitioning for the `enriched_events` table) —
+plain `postgres:15-alpine` is missing it and `db:migrate` fails with `extension
+"pg_partman" is not available`. `postgresql.conf` configures `pg_partman_bgw` for
+scheduled partition maintenance and must sit next to `docker-compose.yml`.
 
 2. Replace the .env values with yours
 
