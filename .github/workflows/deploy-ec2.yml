@@ -156,8 +156,6 @@ jobs:
             docker compose -f docker-compose.production.yml --env-file .env $PROFILE_FLAGS pull
             docker compose -f docker-compose.production.yml --env-file .env $PROFILE_FLAGS up -d --remove-orphans --wait
             docker image prune -f
-            curl -f http://localhost:3000/health
-            curl -f http://localhost:80
           "
 
       - name: External smoke test
