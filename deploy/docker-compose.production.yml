@@ -73,7 +73,7 @@ x-frontend-environment: &frontend-env
 
 services:
   traefik:
-    image: traefik:v3.7.8
+    image: traefik:v3.7.7
     container_name: lago-traefik
     restart: unless-stopped
     command:
