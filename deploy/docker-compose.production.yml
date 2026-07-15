@@ -173,6 +173,9 @@ services:
         condition: service_healthy
         restart: true
         required: false
+      rsa-keys:
+        condition: service_completed_successfully
+        required: false
     command: ["./scripts/migrate.sh"]
     volumes:
       - lago_rsa_data:/app/config/keys
