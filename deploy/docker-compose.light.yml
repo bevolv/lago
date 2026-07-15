@@ -7,7 +7,7 @@ volumes:
   lago_storage_data:
 
 x-postgres-image: &postgres-image
-  image: postgres:15-alpine
+  image: getlago/postgres-partman:15.0-alpine
 x-redis-image: &redis-image
   image: redis:7-alpine
 x-backend-image: &backend-image
@@ -96,6 +96,7 @@ services:
     <<: *postgres-image
     container_name: lago-db
     restart: unless-stopped
+    command: -c config_file=/etc/postgresql.conf
     healthcheck:
       test:
         [
@@ -114,6 +115,7 @@ services:
       POSTGRES_SCHEMA: public
     volumes:
       - lago_postgres_data:/data/postgres
+      - ./postgresql.conf:/etc/postgresql.conf
     ports:
       - ${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}
     profiles:
