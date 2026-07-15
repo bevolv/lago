@@ -117,8 +117,8 @@ docker compose up -d --profile all --profile portainer
 Pushing to the `deploy/ec2` branch triggers `.github/workflows/deploy-ec2.yml`, which
 SSHes into a single EC2 instance, uploads `docker-compose.production.yml`, generates
 `.env` from GitHub Actions secrets/variables, and runs `docker compose pull && up -d`.
-It also deploys a Dozzle log viewer (`amir20/dozzle`) behind Traefik, protected by
-basic auth.
+It also deploys a Dozzle log viewer (`amir20/dozzle`) behind Traefik, and exposes the
+Traefik dashboard itself at its own hostname — both protected by the same basic auth.
 
 Configure a `production` GitHub Environment (Settings → Environments) with the
 following secrets and variables.
